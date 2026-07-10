@@ -10,10 +10,11 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage;
  * LSPosed module for "Download Twitter Videos" (tweeter.gif.twittervideodownloader)
  *
  * Features:
- *   1. Bypass Google Play license verification (pairip)
- *   2. Remove all ads (AdMob, Facebook, ironSource, Unity)
- *   3. Unlock unlimited downloads (remove limitDl restriction)
- *   4. Unlock premium features (force purchase state)
+ *   1. Remove all ads (AdMob, Facebook, ironSource, Unity)
+ *   2. Unlock unlimited downloads (remove limitDl restriction)
+ *   3. Unlock premium features (force purchase state)
+ *
+ * Note: pairip license check works fine on unmodified APK with original signature.
  */
 
 @SuppressWarnings("unused")
@@ -32,44 +33,17 @@ public class MainHook implements IXposedHookLoadPackage {
 
         log("Module loaded for " + lpparam.packageName);
 
-        // === 1. Bypass pairip license verification ===
-        hookPairip(lpparam);
-
-        // === 2. Force ad provider to "none" (disables all ad loading) ===
+        // === 1. Force ad provider to "none" (disables all ad loading) ===
         hookAdProvider(lpparam);
 
-        // === 3. Permanently suppress ad flags ===
+        // === 2. Permanently suppress ad flags ===
         hookAdFlags(lpparam);
 
-        // === 4. Remove download limit ===
+        // === 3. Remove download limit ===
         hookDownloadLimit(lpparam);
 
-        // === 5. Force premium/purchased state ===
+        // === 4. Force premium/purchased state ===
         hookPremiumState(lpparam);
-    }
-
-    /**
-     * Bypass the pairip Google Play license verification.
-     * Hook StartupLauncher.launch() to do nothing.
-     */
-    private void hookPairip(XC_LoadPackage.LoadPackageParam lpparam) {
-        try {
-            XposedHelpers.findAndHookMethod(
-                "com.pairip.StartupLauncher",
-                lpparam.classLoader,
-                "launch",
-                new XC_MethodHook() {
-                    @Override
-                    protected void beforeHookedMethod(MethodHookParam param) {
-                        // Block execution entirely
-                        param.setResult(null);
-                    }
-                }
-            );
-            log("Hooked: pairip StartupLauncher.launch() -> no-op");
-        } catch (Throwable t) {
-            log("FAILED to hook pairip: " + t.getMessage());
-        }
     }
 
     /**
