@@ -24,8 +24,8 @@ jobs:
       - name: Setup Android SDK
         run: |
           echo "sdk.dir=${ANDROID_HOME}" > local.properties
-          echo "ANDROID_HOME=${ANDROID_HOME}"
-          ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --list 2>/dev/null | head -5 || true
+          yes | ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
+          ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -33,7 +33,7 @@ jobs:
           gradle-version: '8.5'
 
       - name: Build debug APK
-        run: gradle assembleDebug
+        run: gradle assembleDebug --info
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
