@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Scope: both original and modded package -->
+    <string-array name="xposed_scope">
+        <item>tweeter.gif.twittervideodownloader</item>
+        <item>tweeter.gif.twittervideodownloader.mod</item>
+    </string-array>
+
+    <string name="app_name">TwitterVideo Hook</string>
+</resources>
