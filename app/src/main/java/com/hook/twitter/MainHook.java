@@ -7,16 +7,11 @@ import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
 /**
- * LSPosed module for "Download Twitter Videos" (tweeter.gif.twittervideodownloader)
+ * LSPosed module for "Download Twitter Videos"
  *
- * Features:
- *   1. Remove all ads (AdMob, Facebook, ironSource, Unity)
- *   2. Unlock unlimited downloads (remove limitDl restriction)
- *   3. Unlock premium features (force purchase state)
- *
- * Note: pairip license check works fine on unmodified APK with original signature.
+ * Strategy: hook SharedPreferences and billing state directly,
+ * avoiding any interference with pairip native code.
  */
-
 @SuppressWarnings("unused")
 public class MainHook implements IXposedHookLoadPackage {
 
@@ -26,218 +21,138 @@ public class MainHook implements IXposedHookLoadPackage {
 
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) throws Throwable {
-        // Only hook our target packages
         if (!lpparam.packageName.equals(PACKAGE_ORIG) && !lpparam.packageName.equals(PACKAGE_MOD)) {
             return;
         }
-
         log("Module loaded for " + lpparam.packageName);
 
-        // === 1. Force ad provider to "none" (disables all ad loading) ===
-        hookAdProvider(lpparam);
-
-        // === 2. Permanently suppress ad flags ===
-        hookAdFlags(lpparam);
-
-        // === 3. Remove download limit ===
-        hookDownloadLimit(lpparam);
-
-        // === 4. Force premium/purchased state ===
-        hookPremiumState(lpparam);
+        // Delay hooks until app is fully initialized to avoid startup crashes
+        hookAppOnCreate(lpparam);
     }
 
     /**
-     * Force the ad network selector to "none".
-     * Class: qg.c (static field 'a' holds the ad network name)
-     * Values: "admob", "meta", or "none"
+     * Hook Application.onCreate() - safe entry point after pairip has done its work.
+     * All other hooks are installed here, after the app is stable.
      */
-    private void hookAdProvider(XC_LoadPackage.LoadPackageParam lpparam) {
+    private void hookAppOnCreate(XC_LoadPackage.LoadPackageParam lpparam) {
         try {
-            // Hook class initializer to replace the field after it's set
-            XposedHelpers.findAndHookMethod(
-                "qg.c",
-                lpparam.classLoader,
-                "a",
-                new XC_MethodHook() {
-                    @Override
-                    protected void beforeHookedMethod(MethodHookParam param) {
-                        // Always return "none" so ads never load
-                        param.setResult("none");
-                    }
-                }
-            );
-            log("Hooked: qg.c.a (ad provider) -> forced 'none'");
-        } catch (Throwable t) {
-            // The field might not have a getter method, try direct field hook
-            try {
-                Class<?> clz = XposedHelpers.findClass("qg.c", lpparam.classLoader);
-                // We'll hook the static initializer to override
-                // Actually let's hook where it's used
-                log("qg.c hook failed, trying alternative...");
-            } catch (Throwable ignored) {}
-        }
+            String appClass = lpparam.packageName.equals(PACKAGE_MOD)
+                ? PACKAGE_MOD + ".App"
+                : PACKAGE_ORIG + ".App";
 
-        // Alternative: hook the ad loading entry points to return immediately
-        try {
             XposedHelpers.findAndHookMethod(
-                "sg.b",  // Interstitial ad manager
+                appClass,
                 lpparam.classLoader,
-                "a",
-                boolean.class,  // showAd method
-                new XC_MethodHook() {
-                    @Override
-                    protected void beforeHookedMethod(MethodHookParam param) {
-                        param.setResult(false); // Never show interstitial
-                    }
-                }
-            );
-            log("Hooked: sg.b (interstitial) -> never show");
-        } catch (Throwable t) {
-            log("FAILED to hook sg.b: " + t.getMessage());
-        }
-
-        try {
-            XposedHelpers.findAndHookMethod(
-                "sg.i",  // Native ad loader
-                lpparam.classLoader,
-                "a",
-                new XC_MethodHook() {
-                    @Override
-                    protected void beforeHookedMethod(MethodHookParam param) {
-                        param.setResult(null); // Never load native ads
-                    }
-                }
-            );
-            log("Hooked: sg.i (native ad loader) -> never load");
-        } catch (Throwable t) {
-            log("FAILED to hook sg.i: " + t.getMessage());
-        }
-    }
-
-    /**
-     * Hook the ad enable/disable flags.
-     * qg.b.d (boolean) - ads enabled lifecycle flag (false=disable)
-     * qg.b.e (boolean) - settings suppress flag (true=suppress)
-     */
-    private void hookAdFlags(XC_LoadPackage.LoadPackageParam lpparam) {
-        try {
-            // Override the lifecycle flag setter
-            // ng.b.C() sets qg.b.d = true (on start)
-            // ng.b.u() sets qg.b.d = false (on stop)
-            // We intercept and keep it false
-            XposedHelpers.findAndHookMethod(
-                "ng.b",
-                lpparam.classLoader,
-                "C",
+                "onCreate",
                 new XC_MethodHook() {
                     @Override
                     protected void afterHookedMethod(MethodHookParam param) {
-                        // After lifecycle sets d=true, force it back to false
-                        try {
-                            XposedHelpers.setStaticBooleanField(
-                                XposedHelpers.findClass("qg.b", lpparam.classLoader),
-                                "d", false
-                            );
-                        } catch (Throwable ignored) {}
+                        log("App.onCreate() completed, installing hooks...");
+                        installSafeHooks(lpparam);
                     }
                 }
             );
-            log("Hooked: ng.b.C() -> force qg.b.d = false after lifecycle");
+            log("Installed App.onCreate hook for " + appClass);
         } catch (Throwable t) {
-            log("FAILED to hook ng.b.C: " + t.getMessage());
-        }
-
-        try {
-            // Force static field e to true (suppress ads permanently)
-            XposedHelpers.findAndHookMethod(
-                "qg.b",
-                lpparam.classLoader,
-                "a",  // static getter for 'e'
-                new XC_MethodHook() {
-                    @Override
-                    protected void beforeHookedMethod(MethodHookParam param) {
-                        param.setResult(true);
-                    }
-                }
-            );
-            log("Hooked: qg.b.a() -> always suppress ads");
-        } catch (Throwable t) {
-            log("FAILED to hook qg.b: " + t.getMessage());
-        }
-    }
-
-    /**
-     * Remove the download limit by overriding Pref.g() which returns the limit.
-     * The default is 4, we force it to Integer.MAX_VALUE.
-     */
-    private void hookDownloadLimit(XC_LoadPackage.LoadPackageParam lpparam) {
-        try {
-            XposedHelpers.findAndHookMethod(
-                PACKAGE_ORIG + ".pref.Pref",
-                lpparam.classLoader,
-                "g",
-                new XC_MethodHook() {
-                    @Override
-                    protected void beforeHookedMethod(MethodHookParam param) {
-                        param.setResult(9999); // Effectively unlimited
-                    }
-                }
-            );
-            log("Hooked: Pref.g() (limitDl) -> always return 9999");
-        } catch (Throwable t) {
-            // Try with .mod package name
+            log("FAILED to hook App.onCreate: " + t.getMessage());
+            // Fallback: try with Application superclass
             try {
                 XposedHelpers.findAndHookMethod(
-                    PACKAGE_MOD + ".pref.Pref",
+                    "android.app.Application",
                     lpparam.classLoader,
-                    "g",
+                    "onCreate",
                     new XC_MethodHook() {
                         @Override
-                        protected void beforeHookedMethod(MethodHookParam param) {
-                            param.setResult(9999);
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            installSafeHooks(lpparam);
                         }
                     }
                 );
-                log("Hooked: Pref.g() (.mod) -> always return 9999");
+                log("Fallback: hooked Application.onCreate");
             } catch (Throwable t2) {
-                log("FAILED to hook Pref.g: " + t2.getMessage());
+                log("FAILED fallback: " + t2.getMessage());
             }
         }
     }
 
     /**
-     * Force premium/purchased state so the app thinks the user bought
-     * the "remove ads" IAP. This prevents purchase gating in settings
-     * and unlocks any premium-locked features.
-     *
-     * The purchase state enum og.b has SKU_STATE_PURCHASED = 6.
-     * The billing repo og.k stores state in field 'd' (MutableStateFlow).
+     * Install hooks that are safe to run after app initialization.
      */
-    private void hookPremiumState(XC_LoadPackage.LoadPackageParam lpparam) {
+    private void installSafeHooks(XC_LoadPackage.LoadPackageParam lpparam) {
+        hookDownloadLimit(lpparam);
+        hookBillingPremium(lpparam);
+        hookAdBlocker(lpparam);
+    }
+
+    /**
+     * Remove download limit by hooking Pref.g() -> always return 9999.
+     */
+    private void hookDownloadLimit(XC_LoadPackage.LoadPackageParam lpparam) {
         try {
-            // Hook the billing repo state getter to always return PURCHASED
-            // og.k.d returns a CoroutineStateFlow wrapping og.b enum
-            Class<?> ogk = XposedHelpers.findClass("og.k", lpparam.classLoader);
-            Class<?> ogb = XposedHelpers.findClass("og.b", lpparam.classLoader);
-
-            // Get the SKU_STATE_PURCHASED enum value (ordinal 6)
-            Object purchasedState = ogb.getEnumConstants()[6];
-
-            // Hook the state flow getter
+            String pkg = lpparam.packageName;
             XposedHelpers.findAndHookMethod(
-                "og.k",
-                lpparam.classLoader,
-                "d",
+                pkg + ".pref.Pref", lpparam.classLoader, "g",
                 new XC_MethodHook() {
                     @Override
                     protected void beforeHookedMethod(MethodHookParam param) {
-                        param.setResult(purchasedState);
+                        param.setResult(9999);
                     }
                 }
             );
-            log("Hooked: og.k.d() -> always return SKU_STATE_PURCHASED");
+            log("Hooked: Pref.g() -> unlimited downloads");
         } catch (Throwable t) {
-            log("FAILED to hook premium state: " + t.getMessage());
+            log("FAILED Pref.g: " + t.getMessage());
+        }
+    }
+
+    /**
+     * Force billing/purchase state to PURCHASED so premium is unlocked.
+     * og.k.d() returns the purchase state MutableStateFlow value.
+     * og.b enum: SKU_STATE_PURCHASED = ordinal 6.
+     */
+    private void hookBillingPremium(XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            Class<?> stateEnum = XposedHelpers.findClass("og.b", lpparam.classLoader);
+            Object purchased = stateEnum.getEnumConstants()[6]; // SKU_STATE_PURCHASED
+
+            XposedHelpers.findAndHookMethod(
+                "og.k", lpparam.classLoader, "d",
+                new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam param) {
+                        param.setResult(purchased);
+                    }
+                }
+            );
+            log("Hooked: og.k.d() -> SKU_STATE_PURCHASED");
+        } catch (Throwable t) {
+            log("FAILED billing: " + t.getMessage());
+        }
+    }
+
+    /**
+     * Block ads by hooking the ad enable/disable flags directly.
+     * qg.b has fields: d (boolean, lifecycle), e (boolean, suppress)
+     * Setting e=true suppresses all ads.
+     */
+    private void hookAdBlocker(XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            Class<?> qgb = XposedHelpers.findClass("qg.b", lpparam.classLoader);
+            XposedHelpers.setStaticBooleanField(qgb, "e", true);
+            log("Hooked: qg.b.e = true (ads suppressed)");
+        } catch (Throwable t) {
+            log("FAILED ad blocker: " + t.getMessage());
+        }
+
+        // Also try to set ad provider to "none"
+        try {
+            Class<?> qgc = XposedHelpers.findClass("qg.c", lpparam.classLoader);
+            java.lang.reflect.Field field = qgc.getDeclaredField("a");
+            field.setAccessible(true);
+            field.set(null, "none");
+            log("Hooked: qg.c.a = 'none' (ad provider disabled)");
+        } catch (Throwable t) {
+            log("FAILED ad provider: " + t.getMessage());
         }
     }
 
