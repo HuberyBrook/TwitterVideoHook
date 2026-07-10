@@ -20,6 +20,4 @@ android {
     }
 }
 
-dependencies {
-    compileOnly(files("libs/api-82.jar"))
-}
+dependencies {}
