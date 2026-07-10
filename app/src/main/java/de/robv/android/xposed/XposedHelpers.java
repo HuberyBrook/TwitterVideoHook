@@ -13,25 +13,25 @@ public final class XposedHelpers {
         }
     }
 
-    public static Method findMethodExact(Class<?> clazz, String methodName, Class<?>... parameterTypes) {
-        try {
-            return clazz.getDeclaredMethod(methodName, parameterTypes);
-        } catch (NoSuchMethodException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
+    // No parameter types (hook no-arg method)
     public static XC_MethodHook.Unhook findAndHookMethod(
             String className, ClassLoader classLoader,
-            String methodName, Object... parameterTypesAndCallback) {
+            String methodName, XC_MethodHook callback) {
+        return findAndHookMethod(className, classLoader, methodName, new Class<?>[0], callback);
+    }
+
+    // One parameter type
+    public static XC_MethodHook.Unhook findAndHookMethod(
+            String className, ClassLoader classLoader,
+            String methodName, Class<?> paramType, XC_MethodHook callback) {
+        return findAndHookMethod(className, classLoader, methodName, new Class<?>[]{paramType}, callback);
+    }
+
+    private static XC_MethodHook.Unhook findAndHookMethod(
+            String className, ClassLoader classLoader,
+            String methodName, Class<?>[] paramTypes, XC_MethodHook callback) {
         try {
             Class<?> clazz = findClass(className, classLoader);
-            Class<?>[] paramTypes = new Class<?>[parameterTypesAndCallback.length - 1];
-            for (int i = 0; i < paramTypes.length; i++) {
-                if (parameterTypesAndCallback[i] instanceof Class) {
-                    paramTypes[i] = (Class<?>) parameterTypesAndCallback[i];
-                }
-            }
             Method method = clazz.getDeclaredMethod(methodName, paramTypes);
             method.setAccessible(true);
             return new XC_MethodHook.Unhook();
